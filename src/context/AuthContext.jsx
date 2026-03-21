@@ -9,126 +9,146 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  const fetchProfile = async (userId, retries = 3, delay = 500) => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      console.log(`[Auth] Fetching profile for user ${userId} (attempt ${attempt}/${retries})`)
-      
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
+  // Fetch profile with optimized retry logic
+  const fetchProfile = async (userId, maxRetries = 3, delayMs = 300) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
 
-      if (!error && data) {
-        console.log('[Auth] Profile fetched successfully:', data.id)
-        return data
-      }
+        if (data) {
+          console.log('[Auth] Profile loaded successfully')
+          return data
+        }
 
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 means row not found, which is expected for new users
-        console.error(`[Auth] Profile fetch error (attempt ${attempt}):`, error.code, error.message)
-      }
-
-      // If this is not the last attempt, wait before retrying
-      if (attempt < retries) {
-        console.log(`[Auth] Retrying profile fetch in ${delay}ms...`)
-        await new Promise(r => setTimeout(r, delay))
+        // PGRST116 = row not found (expected for very new profiles)
+        if (error && error.code === 'PGRST116' && attempt < maxRetries) {
+          console.log(`[Auth] Profile not yet synced, retrying in ${delayMs}ms...`)
+          await new Promise(r => setTimeout(r, delayMs))
+        } else if (error) {
+          console.error('[Auth] Profile fetch error:', error.code)
+          break
+        }
+      } catch (err) {
+        console.error('[Auth] Exception fetching profile:', err)
+        if (attempt === maxRetries) break
+        await new Promise(r => setTimeout(r, delayMs))
       }
     }
-
-    console.log('[Auth] Profile fetch failed after all retries')
     return null
   }
 
+  // Create profile for new OAuth users
   const createProfileIfNotExists = async (user) => {
     if (!user) return null
 
-    // Check if profile exists (with retry logic)
-    console.log('[Auth] Checking if profile exists for user:', user.id)
-    let profile = await fetchProfile(user.id, 3, 500)
-    if (profile) {
-      console.log('[Auth] Profile found, returning existing profile')
-      return profile
-    }
+    // Try to fetch existing profile first
+    let profile = await fetchProfile(user.id, 3, 300)
+    if (profile) return profile
 
-    // Create profile for new OAuth users
-    console.log('[Auth] Profile not found, creating new profile for OAuth user')
-    const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'
-    const { data: newProfile, error: createError } = await supabase
-      .from('profiles')
-      .insert({
-        id: user.id,
-        full_name: fullName,
-        email: user.email,
-        role: 'user',
-      })
-      .select()
-      .single()
+    // If profile doesn't exist, create it for new OAuth users
+    try {
+      const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'
+      const { data: newProfile, error: createError } = await supabase
+        .from('profiles')
+        .insert({
+          id: user.id,
+          full_name: fullName,
+          email: user.email,
+          role: 'user',
+        })
+        .select()
+        .single()
 
-    if (createError) {
-      console.error('[Auth] Error creating profile for OAuth user:', createError)
+      if (createError) {
+        console.error('[Auth] Error creating profile:', createError)
+        return null
+      }
+
+      console.log('[Auth] Profile created for new user')
+      return newProfile
+    } catch (err) {
+      console.error('[Auth] Exception creating profile:', err)
       return null
     }
-    
-    console.log('[Auth] New profile created successfully:', newProfile.id)
-    return newProfile
   }
 
   useEffect(() => {
     let isMounted = true
+    
+    // Fast auth load timeout (5 seconds is more reasonable than 10)
     const timeoutId = setTimeout(() => {
       if (isMounted) {
-        console.warn('[Auth] Session loading timeout after 10 seconds')
+        console.warn('[Auth] Session loading timeout')
         setLoading(false)
       }
-    }, 10000)
+    }, 5000)
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!isMounted) return
-      
-      console.log('[Auth] Session loaded:', session?.user?.id ? 'User found' : 'No user')
-      
-      if (session?.user) {
-        setUser(session.user)
-        const p = await createProfileIfNotExists(session.user)
+    // Get initial session immediately
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        if (!isMounted) return
+        
+        if (sessionError) {
+          console.error('[Auth] Session error:', sessionError.message)
+          setError(sessionError.message)
+          setLoading(false)
+          clearTimeout(timeoutId)
+          return
+        }
+
+        if (session?.user) {
+          setUser(session.user)
+          const profile = await createProfileIfNotExists(session.user)
+          if (isMounted) {
+            setProfile(profile)
+            setError(null)
+          }
+        }
+
         if (isMounted) {
-          setProfile(p)
+          setLoading(false)
+          clearTimeout(timeoutId)
+        }
+      } catch (err) {
+        console.error('[Auth] Exception during init:', err)
+        if (isMounted) {
+          setError(err.message)
+          setLoading(false)
+          clearTimeout(timeoutId)
         }
       }
-      
-      if (isMounted) {
-        console.log('[Auth] Auth loading complete')
-        setLoading(false)
-        clearTimeout(timeoutId)
-      }
-    }).catch(err => {
-      console.error('[Auth] Error getting session:', err)
-      if (isMounted) {
-        setLoading(false)
-        clearTimeout(timeoutId)
-      }
-    })
+    }
 
-    // Listen for auth changes
+    initAuth()
+
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return
-        
-        console.log('[Auth] Auth state changed:', event, session?.user?.id ? 'User found' : 'No user')
-        
+
+        console.log('[Auth] Auth state changed:', event)
+
         if (session?.user) {
           setUser(session.user)
-          const p = await createProfileIfNotExists(session.user)
+          const profile = await createProfileIfNotExists(session.user)
           if (isMounted) {
-            setProfile(p)
+            setProfile(profile)
+            setError(null)
           }
         } else {
           setUser(null)
           setProfile(null)
+          setError(null)
         }
-        
+
         if (isMounted) {
           setLoading(false)
           clearTimeout(timeoutId)
@@ -144,28 +164,43 @@ export function AuthProvider({ children }) {
   }, [])
 
   const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    return { data, error }
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) setError(error.message)
+      return { data, error }
+    } catch (err) {
+      setError(err.message)
+      return { data: null, error: err }
+    }
   }
 
   const signUp = async (email, password, fullName) => {
-    const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) return { data, error }
-
-    // Insert profile row
-    if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        full_name: fullName,
-        email: email,
-        role: 'user',
-      })
-      if (profileError) {
-        console.error('Error creating profile:', profileError)
-        return { data, error: profileError }
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) {
+        setError(error.message)
+        return { data, error }
       }
+
+      // Insert profile row
+      if (data.user) {
+        const { error: profileError } = await supabase.from('profiles').insert({
+          id: data.user.id,
+          full_name: fullName,
+          email: email,
+          role: 'user',
+        })
+        if (profileError) {
+          console.error('[Auth] Error creating profile after signup:', profileError)
+          setError(profileError.message)
+          return { data, error: profileError }
+        }
+      }
+      return { data, error: null }
+    } catch (err) {
+      setError(err.message)
+      return { data: null, error: err }
     }
-    return { data, error: null }
   }
 
   const signInWithGoogle = async () => {
@@ -177,25 +212,33 @@ export function AuthProvider({ children }) {
         },
       })
       if (error) {
-        console.error('Google OAuth error:', error)
+        console.error('[Auth] Google OAuth error:', error)
+        setError(error.message)
       }
       return { data, error }
     } catch (err) {
-      console.error('Google OAuth sign-in failed:', err)
+      console.error('[Auth] Google OAuth sign-in failed:', err)
+      setError(err.message)
       return { data: null, error: err }
     }
   }
 
   const signOut = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
+    try {
+      await supabase.auth.signOut()
+      setUser(null)
+      setProfile(null)
+      setError(null)
+    } catch (err) {
+      console.error('[Auth] Sign out error:', err)
+    }
   }
 
   const value = {
     user,
     profile,
     loading,
+    error,
     signIn,
     signUp,
     signInWithGoogle,
