@@ -10,28 +10,50 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchProfile = async (userId) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+  const fetchProfile = async (userId, retries = 3, delay = 500) => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      console.log(`[Auth] Fetching profile for user ${userId} (attempt ${attempt}/${retries})`)
+      
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
 
-    if (error) {
-      console.error('Error fetching profile:', error)
-      return null
+      if (!error && data) {
+        console.log('[Auth] Profile fetched successfully:', data.id)
+        return data
+      }
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 means row not found, which is expected for new users
+        console.error(`[Auth] Profile fetch error (attempt ${attempt}):`, error.code, error.message)
+      }
+
+      // If this is not the last attempt, wait before retrying
+      if (attempt < retries) {
+        console.log(`[Auth] Retrying profile fetch in ${delay}ms...`)
+        await new Promise(r => setTimeout(r, delay))
+      }
     }
-    return data
+
+    console.log('[Auth] Profile fetch failed after all retries')
+    return null
   }
 
   const createProfileIfNotExists = async (user) => {
     if (!user) return null
 
-    // Check if profile exists
-    let profile = await fetchProfile(user.id)
-    if (profile) return profile
+    // Check if profile exists (with retry logic)
+    console.log('[Auth] Checking if profile exists for user:', user.id)
+    let profile = await fetchProfile(user.id, 3, 500)
+    if (profile) {
+      console.log('[Auth] Profile found, returning existing profile')
+      return profile
+    }
 
     // Create profile for new OAuth users
+    console.log('[Auth] Profile not found, creating new profile for OAuth user')
     const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'
     const { data: newProfile, error: createError } = await supabase
       .from('profiles')
@@ -45,39 +67,80 @@ export function AuthProvider({ children }) {
       .single()
 
     if (createError) {
-      console.error('Error creating profile for OAuth user:', createError)
+      console.error('[Auth] Error creating profile for OAuth user:', createError)
       return null
     }
+    
+    console.log('[Auth] New profile created successfully:', newProfile.id)
     return newProfile
   }
 
   useEffect(() => {
+    let isMounted = true
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[Auth] Session loading timeout after 10 seconds')
+        setLoading(false)
+      }
+    }, 10000)
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!isMounted) return
+      
+      console.log('[Auth] Session loaded:', session?.user?.id ? 'User found' : 'No user')
+      
       if (session?.user) {
         setUser(session.user)
         const p = await createProfileIfNotExists(session.user)
-        setProfile(p)
+        if (isMounted) {
+          setProfile(p)
+        }
       }
-      setLoading(false)
+      
+      if (isMounted) {
+        console.log('[Auth] Auth loading complete')
+        setLoading(false)
+        clearTimeout(timeoutId)
+      }
+    }).catch(err => {
+      console.error('[Auth] Error getting session:', err)
+      if (isMounted) {
+        setLoading(false)
+        clearTimeout(timeoutId)
+      }
     })
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return
+        
+        console.log('[Auth] Auth state changed:', event, session?.user?.id ? 'User found' : 'No user')
+        
         if (session?.user) {
           setUser(session.user)
           const p = await createProfileIfNotExists(session.user)
-          setProfile(p)
+          if (isMounted) {
+            setProfile(p)
+          }
         } else {
           setUser(null)
           setProfile(null)
         }
-        setLoading(false)
+        
+        if (isMounted) {
+          setLoading(false)
+          clearTimeout(timeoutId)
+        }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      clearTimeout(timeoutId)
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email, password) => {
