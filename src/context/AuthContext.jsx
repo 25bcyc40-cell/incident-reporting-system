@@ -24,12 +24,39 @@ export function AuthProvider({ children }) {
     return data
   }
 
+  const createProfileIfNotExists = async (user) => {
+    if (!user) return null
+
+    // Check if profile exists
+    let profile = await fetchProfile(user.id)
+    if (profile) return profile
+
+    // Create profile for new OAuth users
+    const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'
+    const { data: newProfile, error: createError } = await supabase
+      .from('profiles')
+      .insert({
+        id: user.id,
+        full_name: fullName,
+        email: user.email,
+        role: 'user',
+      })
+      .select()
+      .single()
+
+    if (createError) {
+      console.error('Error creating profile for OAuth user:', createError)
+      return null
+    }
+    return newProfile
+  }
+
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user)
-        const p = await fetchProfile(session.user.id)
+        const p = await createProfileIfNotExists(session.user)
         setProfile(p)
       }
       setLoading(false)
@@ -40,7 +67,7 @@ export function AuthProvider({ children }) {
       async (event, session) => {
         if (session?.user) {
           setUser(session.user)
-          const p = await fetchProfile(session.user.id)
+          const p = await createProfileIfNotExists(session.user)
           setProfile(p)
         } else {
           setUser(null)
@@ -78,6 +105,24 @@ export function AuthProvider({ children }) {
     return { data, error: null }
   }
 
+  const signInWithGoogle = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin + '/dashboard',
+        },
+      })
+      if (error) {
+        console.error('Google OAuth error:', error)
+      }
+      return { data, error }
+    } catch (err) {
+      console.error('Google OAuth sign-in failed:', err)
+      return { data: null, error: err }
+    }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -90,6 +135,7 @@ export function AuthProvider({ children }) {
     loading,
     signIn,
     signUp,
+    signInWithGoogle,
     signOut,
     isAdmin: profile?.role === 'admin',
   }

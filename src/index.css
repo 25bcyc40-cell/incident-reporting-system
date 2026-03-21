@@ -492,6 +492,46 @@ table td:first-child {
   width: 100%;
 }
 
+.btn-google {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-google:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-light);
+}
+
+.btn-google svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- Divider --- */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
 /* --- Filter Bar --- */
 .filter-bar {
   display: flex;
