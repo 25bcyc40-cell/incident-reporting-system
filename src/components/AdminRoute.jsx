@@ -1,8 +1,9 @@
 import { useAuth } from '../context/AuthContext'
 
 export default function AdminRoute({ children }) {
-  const { isAdmin, loading } = useAuth()
+  const { profile, loading } = useAuth()
 
+  // Wait for auth to complete
   if (loading) {
     return (
       <div className="loading-state">
@@ -12,7 +13,8 @@ export default function AdminRoute({ children }) {
     )
   }
 
-  if (!isAdmin) {
+  // Check if user is admin
+  if (profile?.role !== 'admin') {
     return (
       <div className="access-denied">
         <div className="icon">🔒</div>

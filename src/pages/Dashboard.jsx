@@ -9,7 +9,7 @@ import EmptyState from '../components/EmptyState'
 import { StatusBadge, SeverityBadge } from '../components/Badge'
 
 export default function Dashboard() {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [recentIncidents, setRecentIncidents] = useState([])
@@ -17,9 +17,9 @@ export default function Dashboard() {
   const [recentLoading, setRecentLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Load stats first (faster, minimal data)
+  // Load stats only after we have user/profile from AuthContext
   useEffect(() => {
-    if (!profile?.id) return
+    if (!user?.id) return
 
     const loadStats = async () => {
       try {
@@ -29,8 +29,8 @@ export default function Dashboard() {
         const { data, error: err } = await supabase
           .from('incidents')
           .select('id, status, severity', { count: 'exact' })
-          .eq('user_id', profile.id)
-          .timeout(3000) // 3 second timeout for just stats
+          .eq('user_id', user.id)
+          .timeout(3000)
 
         if (err) throw err
 
@@ -53,11 +53,11 @@ export default function Dashboard() {
     }
 
     loadStats()
-  }, [profile?.id])
+  }, [user?.id])
 
-  // Load recent incidents independently (can be slow)
+  // Load recent incidents independently
   useEffect(() => {
-    if (!profile?.id) return
+    if (!user?.id) return
 
     const loadRecent = async () => {
       try {
@@ -66,10 +66,10 @@ export default function Dashboard() {
         const { data, error: err } = await supabase
           .from('incidents')
           .select('id, title, status, severity, created_at')
-          .eq('user_id', profile.id)
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(5)
-          .timeout(5000) // 5 second timeout for recent
+          .timeout(5000)
 
         if (err) throw err
 
@@ -83,7 +83,7 @@ export default function Dashboard() {
     }
 
     loadRecent()
-  }, [profile?.id])
+  }, [user?.id])
 
   const formatDate = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
