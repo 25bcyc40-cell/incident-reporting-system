@@ -30,7 +30,6 @@ export default function Dashboard() {
           .from('incidents')
           .select('id, status, severity', { count: 'exact' })
           .eq('user_id', user.id)
-          .timeout(3000)
 
         if (err) throw err
 
@@ -69,7 +68,6 @@ export default function Dashboard() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(5)
-          .timeout(5000)
 
         if (err) throw err
 
