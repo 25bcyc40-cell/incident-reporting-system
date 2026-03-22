@@ -17,9 +17,12 @@ export default function Dashboard() {
   const [recentLoading, setRecentLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Load stats only after we have user/profile from AuthContext
+  // Load stats - catch errors gracefully
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id) {
+      setStatsLoading(false)
+      return
+    }
 
     const loadStats = async () => {
       try {
@@ -28,12 +31,12 @@ export default function Dashboard() {
 
         const { data, error: err } = await supabase
           .from('incidents')
-          .select('id, status, severity', { count: 'exact' })
+          .select('id, status, severity')
           .eq('user_id', user.id)
 
         if (err) throw err
 
-        if (data) {
+        if (data && Array.isArray(data)) {
           setStats({
             total: data.length,
             open: data.filter(i => i.status === 'Open').length,
@@ -43,8 +46,8 @@ export default function Dashboard() {
           })
         }
       } catch (err) {
-        console.error('[Dashboard] Stats error:', err)
-        setError('Failed to load stats')
+        console.error('[Dashboard] Stats error:', err.message)
+        setError('Unable to load statistics')
         setStats(null)
       } finally {
         setStatsLoading(false)
@@ -54,9 +57,12 @@ export default function Dashboard() {
     loadStats()
   }, [user?.id])
 
-  // Load recent incidents independently
+  // Load recent incidents
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id) {
+      setRecentLoading(false)
+      return
+    }
 
     const loadRecent = async () => {
       try {
@@ -71,9 +77,9 @@ export default function Dashboard() {
 
         if (err) throw err
 
-        setRecentIncidents(data || [])
+        setRecentIncidents(Array.isArray(data) ? data : [])
       } catch (err) {
-        console.error('[Dashboard] Recent incidents error:', err)
+        console.error('[Dashboard] Recent incidents error:', err.message)
         setRecentIncidents([])
       } finally {
         setRecentLoading(false)

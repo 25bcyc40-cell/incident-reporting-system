@@ -11,145 +11,147 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // Guards to prevent duplicate operations
   const initRef = useRef(false)
-  const profileFetchInProgressRef = useRef({}) // Map of userId -> Promise
+  const profileSyncRef = useRef(null)
 
-  // Fetch profile with optimized retry logic
-  const fetchProfile = async (userId, maxRetries = 3, delayMs = 300) => {
+  // Fetch or create profile - non-blocking
+  const syncProfile = async (authUser) => {
+    if (!authUser?.id) return null
+
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle() // Use maybeSingle() instead of single() - returns null if not found
-
-      if (data) {
-        console.log('[Auth] Profile loaded successfully')
-        return data
+      // Prevent concurrent syncs
+      if (profileSyncRef.current) {
+        return profileSyncRef.current
       }
 
-      // Profile not found and needs to be created
-      if (!data && !error) {
-        console.log('[Auth] Profile does not exist, will create')
-        return null
-      }
+      profileSyncRef.current = (async () => {
+        try {
+          // Try to fetch existing profile
+          const { data: existingProfile, error: fetchError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authUser.id)
+            .maybeSingle()
 
-      if (error) {
-        console.error('[Auth] Profile fetch error:', error.code, error.message)
-        return null
-      }
-    } catch (err) {
-      console.error('[Auth] Exception fetching profile:', err)
-      return null
-    }
+          if (existingProfile) {
+            console.log('[Auth] Profile loaded')
+            return existingProfile
+          }
 
-    return null
-  }
+          if (fetchError && fetchError.code !== 'PGRST116') {
+            console.error('[Auth] Profile fetch error:', fetchError.message)
+            // Return basic profile - DB trigger might create it
+            return {
+              id: authUser.id,
+              full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+              email: authUser.email,
+              role: 'user',
+            }
+          }
 
-  // Create profile for new users (OAuth or signup)
-  const createProfileIfNotExists = async (user) => {
-    if (!user) return null
+          // Profile doesn't exist - create it
+          console.log('[Auth] Creating new profile')
+          const fullName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User'
 
-    // Prevent duplicate profile creation for the same user
-    if (profileFetchInProgressRef.current[user.id]) {
-      console.log('[Auth] Profile fetch already in progress, waiting...')
-      return profileFetchInProgressRef.current[user.id]
-    }
+          const { data: newProfile, error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authUser.id,
+              full_name: fullName,
+              email: authUser.email,
+              role: 'user',
+            })
+            .select()
+            .maybeSingle()
 
-    // Create a promise that tracks this operation
-    const profilePromise = (async () => {
-      try {
-        // Try to fetch existing profile first
-        let profile = await fetchProfile(user.id)
-        if (profile) {
-          console.log('[Auth] Profile loaded')
-          return profile
-        }
+          if (insertError) {
+            console.error('[Auth] Profile creation error:', insertError.message)
+            // Return basic profile object
+            return {
+              id: authUser.id,
+              full_name: fullName,
+              email: authUser.email,
+              role: 'user',
+            }
+          }
 
-        // Profile doesn't exist, create it
-        console.log('[Auth] Creating new profile for user:', user.id)
-        const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'
-        
-        const { data: newProfile, error: createError } = await supabase
-          .from('profiles')
-          .insert({
-            id: user.id,
+          console.log('[Auth] Profile created')
+          return newProfile || {
+            id: authUser.id,
             full_name: fullName,
-            email: user.email,
+            email: authUser.email,
             role: 'user',
-          })
-          .select()
-          .single()
-
-        if (createError) {
-          console.error('[Auth] Error creating profile:', createError.message)
-          // Return null but don't throw - allow auth to continue
-          return null
+          }
+        } catch (err) {
+          console.error('[Auth] Profile sync error:', err.message)
+          // Return basic profile to allow app to continue
+          return {
+            id: authUser.id,
+            full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+            email: authUser.email,
+            role: 'user',
+          }
+        } finally {
+          profileSyncRef.current = null
         }
+      })()
 
-        console.log('[Auth] Profile created')
-        return newProfile
-      } catch (err) {
-        console.error('[Auth] Exception in createProfileIfNotExists:', err.message)
-        // Return null but don't throw - allow auth to continue
-        return null
-      } finally {
-        // Clear the in-progress marker
-        delete profileFetchInProgressRef.current[user.id]
+      return profileSyncRef.current
+    } catch (err) {
+      console.error('[Auth] Sync profile error:', err.message)
+      return {
+        id: authUser.id,
+        full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+        email: authUser.email,
+        role: 'user',
       }
-    })()
-
-    // Store the promise to prevent duplicate requests
-    profileFetchInProgressRef.current[user.id] = profilePromise
-    return profilePromise
+    }
   }
 
   useEffect(() => {
-    // Guard: only initialize once
     if (initRef.current) {
-      console.log('[Auth] Auth already initialized, skipping')
+      console.log('[Auth] Already initialized')
       return
     }
     initRef.current = true
 
     let isMounted = true
 
-    // Listen for auth state changes (fires immediately with current session, then on changes)
+    // Single listener for all auth transitions
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (!isMounted) return
+        try {
+          if (!isMounted) return
 
-        console.log('[Auth] Auth state changed:', event)
+          console.log('[Auth] Auth event:', event)
 
-        if (session?.user) {
-          console.log('[Auth] Session found, user:', session.user.id)
-          setUser(session.user)
-          setError(null)
-          
-          // Set loading to false immediately so UI can render
-          // Profile will load in background
-          if (isMounted) {
+          if (session?.user) {
+            setUser(session.user)
+            setError(null)
+            setLoading(false) // Unblock UI immediately
+
+            // Load/create profile in background
+            syncProfile(session.user)
+              .then(profile => {
+                if (isMounted && profile) {
+                  setProfile(profile)
+                }
+              })
+              .catch(err => {
+                console.error('[Auth] Profile sync failed:', err.message)
+                // App continues even if profile fails
+              })
+          } else {
+            // User not authenticated
+            setUser(null)
+            setProfile(null)
+            setError(null)
             setLoading(false)
           }
-
-          // Load profile in background without blocking UI
-          createProfileIfNotExists(session.user)
-            .then(profile => {
-              if (isMounted) {
-                setProfile(profile)
-              }
-            })
-            .catch(err => {
-              console.error('[Auth] Background profile load error:', err)
-              // Profile load failed but auth is still complete
-            })
-        } else {
-          console.log('[Auth] No session found')
-          setUser(null)
-          setProfile(null)
-          setError(null)
+        } catch (err) {
+          console.error('[Auth] Auth listener error:', err.message)
           if (isMounted) {
+            setError(err.message)
             setLoading(false)
           }
         }
