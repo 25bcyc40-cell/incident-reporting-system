@@ -109,60 +109,8 @@ export function AuthProvider({ children }) {
     initRef.current = true
 
     let isMounted = true
-    const timeoutId = setTimeout(() => {
-      if (isMounted && loading) {
-        console.warn('[Auth] Session loading timeout - proceeding without session')
-        setLoading(false)
-      }
-    }, 5000)
 
-    // Get initial session
-    const initAuth = async () => {
-      try {
-        console.log('[Auth] Initializing auth...')
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-
-        if (!isMounted) return
-
-        if (sessionError) {
-          console.error('[Auth] Session error:', sessionError.message)
-          setError(sessionError.message)
-          setLoading(false)
-          clearTimeout(timeoutId)
-          return
-        }
-
-        if (session?.user) {
-          console.log('[Auth] Session found, user:', session.user.id)
-          setUser(session.user)
-          const profile = await createProfileIfNotExists(session.user)
-          if (isMounted) {
-            setProfile(profile)
-            setError(null)
-          }
-        } else {
-          console.log('[Auth] No session found')
-          setUser(null)
-          setProfile(null)
-        }
-
-        if (isMounted) {
-          setLoading(false)
-          clearTimeout(timeoutId)
-        }
-      } catch (err) {
-        console.error('[Auth] Exception during init:', err.message)
-        if (isMounted) {
-          setError(err.message)
-          setLoading(false)
-          clearTimeout(timeoutId)
-        }
-      }
-    }
-
-    initAuth()
-
-    // Listen for auth state changes (sign in/out after initial load)
+    // Listen for auth state changes (fires immediately with current session, then on changes)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return
@@ -170,18 +118,27 @@ export function AuthProvider({ children }) {
         console.log('[Auth] Auth state changed:', event)
 
         if (session?.user) {
+          console.log('[Auth] Session found, user:', session.user.id)
           setUser(session.user)
-          const profile = await createProfileIfNotExists(session.user)
-          if (isMounted) {
-            setProfile(profile)
-            setError(null)
-            setLoading(false)
+          try {
+            const profile = await createProfileIfNotExists(session.user)
+            if (isMounted) {
+              setProfile(profile)
+              setError(null)
+            }
+          } catch (err) {
+            console.error('[Auth] Error loading profile:', err)
+            if (isMounted) setError(err.message)
           }
         } else {
-          // User signed out
+          console.log('[Auth] No session found')
           setUser(null)
           setProfile(null)
           setError(null)
+        }
+
+        // Only set loading to false after we've processed the session
+        if (isMounted) {
           setLoading(false)
         }
       }
@@ -189,7 +146,6 @@ export function AuthProvider({ children }) {
 
     return () => {
       isMounted = false
-      clearTimeout(timeoutId)
       subscription?.unsubscribe()
     }
   }, [])
