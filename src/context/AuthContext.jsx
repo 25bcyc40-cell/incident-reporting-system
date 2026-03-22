@@ -62,7 +62,10 @@ export function AuthProvider({ children }) {
       try {
         // Try to fetch existing profile first
         let profile = await fetchProfile(user.id)
-        if (profile) return profile
+        if (profile) {
+          console.log('[Auth] Profile loaded')
+          return profile
+        }
 
         // Profile doesn't exist, create it
         console.log('[Auth] Creating new profile for user:', user.id)
@@ -81,13 +84,15 @@ export function AuthProvider({ children }) {
 
         if (createError) {
           console.error('[Auth] Error creating profile:', createError.message)
+          // Return null but don't throw - allow auth to continue
           return null
         }
 
-        console.log('[Auth] Profile created successfully')
+        console.log('[Auth] Profile created')
         return newProfile
       } catch (err) {
-        console.error('[Auth] Exception in createProfileIfNotExists:', err)
+        console.error('[Auth] Exception in createProfileIfNotExists:', err.message)
+        // Return null but don't throw - allow auth to continue
         return null
       } finally {
         // Clear the in-progress marker
@@ -120,26 +125,33 @@ export function AuthProvider({ children }) {
         if (session?.user) {
           console.log('[Auth] Session found, user:', session.user.id)
           setUser(session.user)
-          try {
-            const profile = await createProfileIfNotExists(session.user)
-            if (isMounted) {
-              setProfile(profile)
-              setError(null)
-            }
-          } catch (err) {
-            console.error('[Auth] Error loading profile:', err)
-            if (isMounted) setError(err.message)
+          setError(null)
+          
+          // Set loading to false immediately so UI can render
+          // Profile will load in background
+          if (isMounted) {
+            setLoading(false)
           }
+
+          // Load profile in background without blocking UI
+          createProfileIfNotExists(session.user)
+            .then(profile => {
+              if (isMounted) {
+                setProfile(profile)
+              }
+            })
+            .catch(err => {
+              console.error('[Auth] Background profile load error:', err)
+              // Profile load failed but auth is still complete
+            })
         } else {
           console.log('[Auth] No session found')
           setUser(null)
           setProfile(null)
           setError(null)
-        }
-
-        // Only set loading to false after we've processed the session
-        if (isMounted) {
-          setLoading(false)
+          if (isMounted) {
+            setLoading(false)
+          }
         }
       }
     )
