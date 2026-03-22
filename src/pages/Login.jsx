@@ -31,8 +31,16 @@ export default function Login() {
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true)
     setError('')
-    const { error: googleError } = await signInWithGoogle()
-    if (googleError) {
+    
+    try {
+      const { error: googleError } = await signInWithGoogle()
+      if (googleError) {
+        setError('Failed to sign in with Google. Please try again.')
+        setGoogleLoading(false)
+      }
+      // If successful, don't reset loading - let redirect happen
+    } catch (err) {
+      console.error('[Login] Google sign-in error:', err)
       setError('Failed to sign in with Google. Please try again.')
       setGoogleLoading(false)
     }

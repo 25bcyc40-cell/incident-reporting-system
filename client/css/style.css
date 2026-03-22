@@ -1,0 +1,149 @@
+:root {
+  --bg: #f4f7fb;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --radius: 12px;
+  --shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Helvetica, Arial, sans-serif;
+  background: linear-gradient(135deg, #f7f9fc, #e5ecf7);
+  color: var(--text);
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 28px;
+  text-align: center;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+}
+
+.auth-card p {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+.auth-card label {
+  display: block;
+  text-align: left;
+  margin: 12px 0 5px;
+  font-weight: 600;
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.auth-card button {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: var(--primary);
+  color: white;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.auth-card button:hover {
+  background: var(--primary-hover);
+}
+
+.alert {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: none;
+}
+
+.alert.visible {
+  display: block;
+}
+
+.alert.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 20px;
+}
+
+.page-content {
+  padding: 20px;
+}
+
+.stats-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.section-spaced {
+  margin-top: 20px;
+}
+
+.muted-text {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--primary);
+  color: white;
+}
+
+button:hover {
+  background: var(--primary-hover);
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

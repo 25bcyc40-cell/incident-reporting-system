@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Report Incident</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+  <main class="auth-page">
+    <div class="auth-card">
+      <h1>Report Incident</h1>
+      <div id="error" class="alert error" style="display:none"></div>
+      <form id="reportForm">
+        <label for="title">Title</label>
+        <input id="title" name="title" required />
+
+        <label for="description">Description</label>
+        <textarea id="description" name="description" required rows="4"></textarea>
+
+        <button type="submit">Submit</button>
+      </form>
+      <button id="backBtn" style="margin-top:12px;">Back to Dashboard</button>
+    </div>
+  </main>
+
+  <script src="../js/auth.js"></script>
+  <script src="../js/incidents.js"></script>
+</body>
+</html>

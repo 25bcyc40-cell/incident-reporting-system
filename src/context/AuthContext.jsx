@@ -216,17 +216,22 @@ export function AuthProvider({ children }) {
   const signInWithGoogle = async () => {
     try {
       setError(null)
+      const redirectUrl = `${window.location.origin}/dashboard`
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: redirectUrl,
+          queryParams: {
+            prompt: 'consent',
+          },
         },
       })
       if (error) {
         console.error('[Auth] Google OAuth error:', error.message)
         setError(error.message)
+        return { data: null, error }
       }
-      return { data, error }
+      return { data, error: null }
     } catch (err) {
       console.error('[Auth] Google OAuth exception:', err.message)
       setError(err.message)
